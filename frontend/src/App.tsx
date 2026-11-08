@@ -40,6 +40,15 @@ function destinationName(route: RouteInfo): string {
 }
 
 
+function CloudIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M19.35 10.04A7.49 7.49 0 0 0 5.5 8 5.994 5.994 0 0 0 6 19.97h13a4.998 4.998 0 0 0 .35-9.93Z" />
+    </svg>
+  );
+}
+
+
 function PlaneIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -52,9 +61,29 @@ function PlaneIcon() {
 function ArrowIcon() {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M4 10h12M12 6l4 4-4 4" />
+      <path d="M3.5 10h13M12 5.5l4.5 4.5-4.5 4.5" />
     </svg>
   );
+}
+
+
+function getChartDomain(forecast: Forecast | null): [number, number] {
+  if (!forecast) {
+    return [0, 100];
+  }
+
+  const values = [
+    forecast.flight.seats,
+    ...forecast.quantiles.map((item) => item.demand),
+  ];
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const padding = Math.max(50, (maximum - minimum) * 0.12);
+
+  return [
+    Math.max(0, Math.floor((minimum - padding) / 100) * 100),
+    Math.ceil((maximum + padding) / 100) * 100,
+  ];
 }
 
 
@@ -151,17 +180,38 @@ function App() {
     label: `${Math.round(item.quantile * 100)}%`,
   }));
   const medianDemand = forecast?.quantiles.find((item) => item.is_median)?.demand;
+  const destinationCode = forecast?.flight.route.split("-")[1];
+  const chartDomain = getChartDomain(forecast);
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#main-content" aria-label="Решись Авиа — к содержанию">
-          <span className="brand-mark"><PlaneIcon /></span>
-          <span>Решись Авиа</span>
-        </a>
-        <div className="system-status">
-          <span className="status-dot" />
-          Данные модели загружены
+      <div className="cloud-backdrop" aria-hidden="true">
+        <span className="cloud-shape cloud-one"><CloudIcon /></span>
+        <span className="cloud-shape cloud-two"><CloudIcon /></span>
+        <span className="cloud-shape cloud-three"><CloudIcon /></span>
+        <span className="cloud-shape cloud-four"><CloudIcon /></span>
+        <span className="cloud-shape cloud-five"><CloudIcon /></span>
+        <span className="cloud-shape cloud-six"><CloudIcon /></span>
+        <span className="cloud-shape cloud-seven"><CloudIcon /></span>
+        <span className="cloud-shape cloud-eight"><CloudIcon /></span>
+        <span className="cloud-shape cloud-nine"><CloudIcon /></span>
+        <span className="cloud-shape cloud-ten"><CloudIcon /></span>
+      </div>
+
+      <header className="app-header">
+        <div className="header-inner">
+          <a className="brand" href="#main-content" aria-label="Решись Авиа — к содержанию">
+            <span className="brand-mark"><CloudIcon /></span>
+            <span className="brand-copy">
+              <strong>Решись Авиа</strong>
+              <small>Revenue intelligence</small>
+            </span>
+          </a>
+
+          <div className="header-meta">
+            <span className="model-status"><i /> DirectTabular активна</span>
+            <span className="data-period">Данные: 01.06–01.07.2026</span>
+          </div>
         </div>
       </header>
 
@@ -169,114 +219,101 @@ function App() {
         <div className="page-heading">
           <div>
             <h1>Прогноз спроса</h1>
-            <p>Оцените продажи для маршрута, даты и стоимости билета.</p>
+            <p>Оцените продажи и загрузку рейса при выбранной стоимости билета.</p>
           </div>
-          <span className="model-note">DirectTabular · 9 сценариев</span>
+          <span className="scenario-badge">9 сценариев модели</span>
         </div>
 
-        <div className="workspace">
-          <aside className="control-panel" aria-labelledby="parameters-heading">
-            <div className="panel-heading">
-              <span className="step-number">01</span>
-              <div>
-                <h2 id="parameters-heading">Параметры рейса</h2>
-                <p>Выберите направление и задайте цену.</p>
-              </div>
+        <form className="forecast-form" onSubmit={handleSubmit} aria-label="Параметры рейса">
+          <label className="form-field origin-field" htmlFor="origin">
+            <span>Откуда</span>
+            <input id="origin" value="Москва" disabled />
+          </label>
+
+          <div className="route-arrow" aria-hidden="true"><ArrowIcon /></div>
+
+          <label className="form-field destination-field" htmlFor="destination">
+            <span>Куда</span>
+            <select
+              id="destination"
+              value={routeCode}
+              onChange={(event) => handleRouteChange(event.target.value)}
+              disabled={routes.length === 0}
+            >
+              {routes.map((route) => (
+                <option key={route.code} value={route.code}>
+                  {destinationName(route)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="form-field" htmlFor="date">
+            <span>Дата вылета</span>
+            <select
+              id="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              disabled={dates.length === 0}
+            >
+              {dates.map((availableDate) => (
+                <option key={availableDate} value={availableDate}>
+                  {formatDate(availableDate)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="form-field price-field" htmlFor="price">
+            <span>Стоимость билета</span>
+            <div className="price-input">
+              <input
+                id="price"
+                type="number"
+                min="0"
+                step="100"
+                value={price}
+                onChange={(event) => setPrice(event.target.value)}
+                inputMode="numeric"
+              />
+              <b>₽</b>
             </div>
+            {selectedRoute && (
+              <small>Рекомендуется {priceFormatter.format(selectedRoute.price_min)}–{priceFormatter.format(selectedRoute.price_max)}</small>
+            )}
+          </label>
 
-            <form onSubmit={handleSubmit}>
-              <div className="field-group">
-                <label htmlFor="origin">Пункт отправления</label>
-                <input id="origin" value="Москва" disabled />
-              </div>
+          <button className="calculate-button" type="submit" disabled={loading}>
+            {loading ? "Рассчитываем…" : "Рассчитать"}
+            {!loading && <ArrowIcon />}
+          </button>
 
-              <div className="route-divider" aria-hidden="true">
-                <span />
-                <ArrowIcon />
-                <span />
-              </div>
+          {error && <p className="form-error" role="alert">{error}</p>}
+        </form>
 
-              <div className="field-group">
-                <label htmlFor="destination">Пункт назначения</label>
-                <select
-                  id="destination"
-                  value={routeCode}
-                  onChange={(event) => handleRouteChange(event.target.value)}
-                  disabled={routes.length === 0}
-                >
-                  {routes.map((route) => (
-                    <option key={route.code} value={route.code}>
-                      {destinationName(route)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="field-group">
-                <label htmlFor="date">Дата вылета</label>
-                <select
-                  id="date"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
-                  disabled={dates.length === 0}
-                >
-                  {dates.map((availableDate) => (
-                    <option key={availableDate} value={availableDate}>
-                      {formatDate(availableDate)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="field-group">
-                <label htmlFor="price">Стоимость билета</label>
-                <div className="price-input">
-                  <input
-                    id="price"
-                    type="number"
-                    min="0"
-                    step="100"
-                    value={price}
-                    onChange={(event) => setPrice(event.target.value)}
-                    inputMode="numeric"
-                  />
-                  <span>₽</span>
-                </div>
-                {selectedRoute && (
-                  <p className="field-hint">
-                    Рекомендуемый диапазон: {priceFormatter.format(selectedRoute.price_min)}–{priceFormatter.format(selectedRoute.price_max)}
-                  </p>
-                )}
-              </div>
-
-              <button className="submit-button" type="submit" disabled={loading}>
-                {loading ? "Выполняем расчёт…" : "Рассчитать прогноз"}
-                {!loading && <ArrowIcon />}
-              </button>
-
-              {error && <p className="form-error" role="alert">{error}</p>}
-            </form>
-          </aside>
-
-          <section className="results" aria-live="polite" aria-busy={loading}>
-            {forecast ? (
-              <>
-                <div className="result-summary">
-                  <div>
-                    <span className="section-label">Результат расчёта</span>
+        <section className="results" aria-live="polite" aria-busy={loading}>
+          {forecast ? (
+            <>
+              <div className="overview-card">
+                <div className="flight-summary">
+                  <div className="flight-route">
+                    <span>{forecast.flight.route.split("-")[0]}</span>
+                    <i><PlaneIcon /></i>
+                    <span>{destinationCode}</span>
+                  </div>
+                  <div className="flight-copy">
                     <h2>{forecast.flight.route_name}</h2>
                     <p>{formatDate(forecast.flight.date)} · билет {priceFormatter.format(forecast.price)}</p>
                   </div>
-                  <div className="route-code">{forecast.flight.route}</div>
                 </div>
 
-                <div className="metrics" aria-label="Основные показатели прогноза">
+                <div className="metrics-grid" aria-label="Основные показатели прогноза">
                   <article>
                     <span>Вместимость</span>
                     <strong>{numberFormatter.format(forecast.flight.seats)}</strong>
                     <small>мест</small>
                   </article>
-                  <article className="metric-primary">
+                  <article className="primary-metric">
                     <span>Прогноз спроса</span>
                     <strong>{numberFormatter.format(forecast.demand)}</strong>
                     <small>билетов</small>
@@ -292,51 +329,55 @@ function App() {
                     <small>мест</small>
                   </article>
                 </div>
+              </div>
 
-                <div className="chart-card">
-                  <div className="chart-heading">
+              <div className="analytics-grid">
+                <article className="chart-card">
+                  <div className="card-heading">
                     <div>
-                      <h3>Сценарии спроса</h3>
-                      <p>Квантили прогноза при выбранной стоимости билета</p>
+                      <h3>Диапазон спроса</h3>
+                      <p>Девять квантилей прогноза при выбранной цене</p>
                     </div>
                     <div className="chart-legend" aria-label="Легенда графика">
-                      <span><i className="legend-line" />Спрос</span>
-                      <span><i className="legend-dot" />Медиана</span>
+                      <span><i className="legend-demand" />Спрос</span>
+                      <span><i className="legend-median" />Медиана</span>
                       <span><i className="legend-capacity" />Вместимость</span>
                     </div>
                   </div>
 
                   <div className="chart-wrap" aria-label="График девяти квантилей спроса">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData} margin={{ top: 20, right: 18, left: 0, bottom: 0 }}>
-                        <CartesianGrid stroke="#e4e3de" strokeDasharray="3 4" vertical={false} />
+                      <LineChart data={chartData} margin={{ top: 30, right: 20, left: 2, bottom: 8 }}>
+                        <CartesianGrid stroke="#e8edf4" vertical={false} />
                         <XAxis
                           dataKey="label"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "#6f746f", fontSize: 12 }}
+                          tick={{ fill: "#7b8495", fontSize: 12 }}
                           dy={10}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "#6f746f", fontSize: 12 }}
+                          tick={{ fill: "#7b8495", fontSize: 12 }}
                           tickFormatter={(value) => numberFormatter.format(Number(value))}
-                          width={52}
+                          domain={chartDomain}
+                          width={54}
                         />
                         <Tooltip
-                          cursor={{ stroke: "#b9bcb7", strokeDasharray: "3 3" }}
+                          cursor={{ stroke: "#bfdbfe", strokeWidth: 1.5 }}
                           formatter={(value) => [numberFormatter.format(Number(value)), "Спрос"]}
                           labelFormatter={(label) => `Квантиль ${label}`}
                           contentStyle={{
-                            border: "1px solid #d8d8d2",
-                            borderRadius: 8,
-                            boxShadow: "0 8px 24px rgba(31, 39, 34, 0.08)",
+                            border: "1px solid #dbe3ef",
+                            borderRadius: 10,
+                            boxShadow: "0 12px 32px rgba(35, 52, 83, 0.12)",
+                            fontFamily: "Manrope Variable",
                           }}
                         />
                         <ReferenceLine
                           y={forecast.flight.seats}
-                          stroke="#a3a8a3"
+                          stroke="#94a3b8"
                           strokeDasharray="5 5"
                           ifOverflow="extendDomain"
                         />
@@ -344,10 +385,10 @@ function App() {
                           type="monotone"
                           dataKey="demand"
                           name="Спрос"
-                          stroke="#1d5c43"
-                          strokeWidth={2.5}
-                          dot={{ r: 3.5, fill: "#1d5c43", strokeWidth: 0 }}
-                          activeDot={{ r: 5, fill: "#1d5c43", stroke: "#ffffff", strokeWidth: 2 }}
+                          stroke="#2563eb"
+                          strokeWidth={3}
+                          dot={{ r: 3.5, fill: "#ffffff", stroke: "#2563eb", strokeWidth: 2 }}
+                          activeDot={{ r: 5.5, fill: "#2563eb", stroke: "#ffffff", strokeWidth: 2 }}
                           isAnimationActive={false}
                         />
                         {medianDemand !== undefined && (
@@ -355,7 +396,7 @@ function App() {
                             x="50%"
                             y={medianDemand}
                             r={6}
-                            fill="#c65f32"
+                            fill="#172033"
                             stroke="#ffffff"
                             strokeWidth={3}
                           />
@@ -363,23 +404,59 @@ function App() {
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
+                </article>
 
-                  <div className="chart-footer">
-                    <span>Низкий сценарий</span>
-                    <span>Медианный сценарий</span>
-                    <span>Высокий сценарий</span>
+                <aside className="scenario-card" aria-labelledby="scenario-heading">
+                  <div className="card-heading scenario-card-heading">
+                    <div>
+                      <h3 id="scenario-heading">Сценарии</h3>
+                      <p>Спрос относительно вместимости</p>
+                    </div>
                   </div>
-                </div>
-              </>
-            ) : (
-              <div className="empty-state">
-                <div className="loading-mark" />
-                <h2>{loading ? "Загружаем прогноз" : "Прогноз пока недоступен"}</h2>
-                <p>Данные появятся здесь после успешного расчёта.</p>
+
+                  <div className="scenario-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Сценарий</th>
+                          <th>Спрос</th>
+                          <th>К местам</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {forecast.quantiles.map((item) => {
+                          const difference = item.demand - forecast.flight.seats;
+                          return (
+                            <tr key={item.quantile} className={item.is_median ? "median-row" : ""}>
+                              <td>
+                                <strong>P{Math.round(item.quantile * 100)}</strong>
+                                {item.is_median && <small>Медиана</small>}
+                              </td>
+                              <td>{numberFormatter.format(item.demand)}</td>
+                              <td>
+                                <span className={difference > 0 ? "capacity-delta over" : "capacity-delta"}>
+                                  {difference > 0 ? "+" : ""}{numberFormatter.format(difference)}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <p className="scenario-note">Положительное значение означает спрос выше доступных мест.</p>
+                </aside>
               </div>
-            )}
-          </section>
-        </div>
+            </>
+          ) : (
+            <div className="empty-state">
+              <div className="loading-mark" />
+              <h2>{loading ? "Загружаем прогноз" : "Прогноз недоступен"}</h2>
+              <p>Данные появятся после успешного расчёта.</p>
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );
