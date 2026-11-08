@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -11,8 +11,9 @@ import {
   YAxis,
 } from "recharts";
 
-import { getDates, getForecast, getRoutes } from "./api";
-import type { Forecast, RouteInfo } from "./types";
+import { getCurrentUser, getDates, getForecast, getRoutes, logoutUser } from "./api";
+import { AuthModal } from "./AuthModal";
+import type { AuthMode, Forecast, RouteInfo, User } from "./types";
 
 
 const numberFormatter = new Intl.NumberFormat("ru-RU", {
@@ -96,6 +97,11 @@ function App() {
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
 
   const selectedRoute = useMemo(
     () => routes.find((route) => route.code === routeCode),
@@ -147,6 +153,50 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentUser()
+      .then((currentUser) => {
+        if (!cancelled) {
+          setUser(currentUser);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUser(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const closeAuthModal = useCallback(() => setAuthMode(null), []);
+
+  function handleAuthenticated(nextUser: User, created: boolean) {
+    setUser(nextUser);
+    setAuthMode(null);
+    setAuthNotice(created ? "Аккаунт создан — вы вошли в систему" : "Вы вошли в аккаунт");
+  }
+
+  async function handleLogout() {
+    setLogoutPending(true);
+    try {
+      await logoutUser();
+      setUser(null);
+      setAuthNotice("Вы вышли из аккаунта");
+    } catch {
+      setAuthNotice("Не удалось выйти. Попробуйте ещё раз.");
+    } finally {
+      setLogoutPending(false);
+    }
+  }
 
   function handleRouteChange(nextRouteCode: string) {
     setRouteCode(nextRouteCode);
@@ -209,11 +259,47 @@ function App() {
           </a>
 
           <div className="header-meta">
-            <span className="model-status"><i /> DirectTabular активна</span>
-            <span className="data-period">Данные: 01.06–01.07.2026</span>
+            <div className="header-context">
+              <span className="model-status"><i /> DirectTabular активна</span>
+              <span className="data-period">Данные: 01.06–01.07.2026</span>
+            </div>
+
+            {authLoading ? (
+              <span className="auth-skeleton" aria-label="Проверяем сессию" />
+            ) : user ? (
+              <div className="user-menu">
+                <span className="user-avatar">{user.email.charAt(0).toUpperCase()}</span>
+                <span className="user-email">{user.email}</span>
+                <button type="button" onClick={handleLogout} disabled={logoutPending}>
+                  {logoutPending ? "Выходим…" : "Выйти"}
+                </button>
+              </div>
+            ) : (
+              <button className="open-auth-button" type="button" onClick={() => setAuthMode("login")}>
+                <span aria-hidden="true">↗</span>
+                Войти
+              </button>
+            )}
           </div>
         </div>
       </header>
+
+      {authMode && (
+        <AuthModal
+          mode={authMode}
+          onModeChange={setAuthMode}
+          onClose={closeAuthModal}
+          onAuthenticated={handleAuthenticated}
+        />
+      )}
+
+      {authNotice && (
+        <div className="auth-notice" role="status">
+          <i />
+          <span>{authNotice}</span>
+          <button type="button" onClick={() => setAuthNotice("")} aria-label="Закрыть уведомление">×</button>
+        </div>
+      )}
 
       <main id="main-content" className="page">
         <div className="page-heading">
