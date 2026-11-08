@@ -32,3 +32,11 @@ export type Forecast = {
   free_seats: number;
   quantiles: QuantileForecast[];
 };
+
+export type User = {
+  id: number;
+  email: string;
+  created_at: string;
+};
+
+export type AuthMode = "login" | "register";

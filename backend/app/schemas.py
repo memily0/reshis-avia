@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class RouteInfo(BaseModel):
@@ -56,3 +56,28 @@ class HealthResponse(BaseModel):
     status: str
     routes_loaded: int
     forecasts_loaded: int
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, password: str) -> str:
+        if not any(character.isalpha() for character in password):
+            raise ValueError("Password must contain a letter")
+        if not any(character.isdigit() for character in password):
+            raise ValueError("Password must contain a digit")
+        return password
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: EmailStr
+    created_at: datetime
