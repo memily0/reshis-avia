@@ -1,4 +1,8 @@
-from fastapi import Cookie, FastAPI, HTTPException, Response, status
+import os
+from pathlib import Path
+
+from fastapi import Cookie, FastAPI, HTTPException, Request, Response, status
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.auth import (
     SESSION_COOKIE,
@@ -36,6 +40,47 @@ app = FastAPI(
     description="API для оценки спроса и продаж авиабилетов",
     version="0.1.0",
 )
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=()",
+    )
+    if cookie_is_secure():
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+    return response
+
+
+def prevent_sensitive_caching(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
+def validate_auth_origin(request: Request) -> None:
+    origin = request.headers.get("origin")
+    if not origin:
+        return
+
+    configured_origins = {
+        item.strip().rstrip("/")
+        for item in os.getenv("RESHIS_AVIA_ALLOWED_ORIGINS", "").split(",")
+        if item.strip()
+    }
+    host = request.headers.get("host", "")
+    same_origin = f"{request.url.scheme}://{host}".rstrip("/")
+    allowed_origins = configured_origins or {same_origin}
+    if origin.rstrip("/") not in allowed_origins:
+        raise HTTPException(status_code=403, detail="Недопустимый источник запроса")
 
 
 def set_session_cookie(response: Response, token: str) -> None:
@@ -86,33 +131,52 @@ def forecast(request: ForecastRequest) -> dict:
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def register(request: RegisterRequest, response: Response) -> dict:
+def register(request: RegisterRequest, response: Response, http_request: Request) -> dict:
+    validate_auth_origin(http_request)
     user = create_user(str(request.email), request.password)
     if user is None:
         raise HTTPException(status_code=409, detail="Аккаунт с таким email уже существует")
     set_session_cookie(response, create_session(user["id"]))
+    prevent_sensitive_caching(response)
     return user
 
 
 @app.post("/api/auth/login", response_model=UserResponse)
-def login(request: LoginRequest, response: Response) -> dict:
+def login(request: LoginRequest, response: Response, http_request: Request) -> dict:
+    validate_auth_origin(http_request)
     user = authenticate_user(str(request.email), request.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
     set_session_cookie(response, create_session(user["id"]))
+    prevent_sensitive_caching(response)
     return user
 
 
 @app.get("/api/auth/me", response_model=UserResponse)
-def current_user(reshis_session: str | None = Cookie(default=None)) -> dict:
+def current_user(response: Response, reshis_session: str | None = Cookie(default=None)) -> dict:
     user = get_user_by_session(reshis_session)
     if user is None:
         raise HTTPException(status_code=401, detail="Требуется вход в аккаунт")
+    prevent_sensitive_caching(response)
     return user
 
 
+@app.get("/api/auth/session", response_model=UserResponse | None)
+def current_session(
+    response: Response,
+    reshis_session: str | None = Cookie(default=None),
+) -> dict | None:
+    prevent_sensitive_caching(response)
+    return get_user_by_session(reshis_session)
+
+
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response, reshis_session: str | None = Cookie(default=None)) -> None:
+def logout(
+    response: Response,
+    request: Request,
+    reshis_session: str | None = Cookie(default=None),
+) -> None:
+    validate_auth_origin(request)
     delete_session(reshis_session)
     response.delete_cookie(
         key=SESSION_COOKIE,
@@ -121,3 +185,8 @@ def logout(response: Response, reshis_session: str | None = Cookie(default=None)
         secure=cookie_is_secure(),
         samesite="lax",
     )
+    prevent_sensitive_caching(response)
+
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

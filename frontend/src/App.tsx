@@ -82,7 +82,7 @@ function getChartDomain(forecast: Forecast | null): [number, number] {
   const padding = Math.max(50, (maximum - minimum) * 0.12);
 
   return [
-    Math.max(0, Math.floor((minimum - padding) / 100) * 100),
+    Math.floor((minimum - padding) / 100) * 100,
     Math.ceil((maximum + padding) / 100) * 100,
   ];
 }
@@ -117,8 +117,11 @@ function App() {
           getRoutes(),
           getDates(),
         ]);
-        if (cancelled || loadedRoutes.length === 0 || loadedDates.length === 0) {
+        if (cancelled) {
           return;
+        }
+        if (loadedRoutes.length === 0 || loadedDates.length === 0) {
+          throw new Error("Forecast reference data is empty");
         }
 
         const initialRoute = loadedRoutes[0];
@@ -209,7 +212,13 @@ function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const numericPrice = Number(price);
-    if (!routeCode || !date || price.trim() === "" || numericPrice < 0) {
+    if (
+      !routeCode
+      || !date
+      || price.trim() === ""
+      || !Number.isFinite(numericPrice)
+      || numericPrice < 0
+    ) {
       setError("Заполните все поля и укажите неотрицательную цену.");
       return;
     }

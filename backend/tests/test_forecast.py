@@ -81,3 +81,34 @@ def test_all_quantiles_are_calculated_and_median_matches_demand() -> None:
 
     median = next(item for item in result["quantiles"] if item["is_median"])
     assert median["demand"] == result["demand"]
+
+
+def test_all_rows_and_price_boundaries_preserve_forecast_invariants() -> None:
+    checked_scenarios = 0
+    for forecast_row in FORECASTS.itertuples(index=False):
+        route = ROUTES[ROUTES["route"] == forecast_row.route].iloc[0]
+        prices = [
+            0.0,
+            float(route["price_min"]),
+            float(route["base_price"]),
+            float(route["price_max"]),
+            1_000_000.0,
+        ]
+        for price in prices:
+            result = calculate_forecast(
+                forecast_row.route,
+                forecast_row.date.date(),
+                price,
+            )
+            quantile_demands = [item["demand"] for item in result["quantiles"]]
+
+            assert len(result["quantiles"]) == 9
+            assert quantile_demands == sorted(quantile_demands)
+            assert sum(item["is_median"] for item in result["quantiles"]) == 1
+            assert 0 <= result["sales"] <= result["flight"]["seats"]
+            assert result["free_seats"] == pytest.approx(
+                result["flight"]["seats"] - result["sales"]
+            )
+            checked_scenarios += 1
+
+    assert checked_scenarios == 775

@@ -20,9 +20,17 @@ class DatesResponse(BaseModel):
 
 
 class ForecastRequest(BaseModel):
-    route: str = Field(min_length=1)
+    route: str = Field(min_length=1, max_length=32)
     date: date
     price: float = Field(ge=0, allow_inf_nan=False)
+
+    @field_validator("route")
+    @classmethod
+    def validate_route(cls, route: str) -> str:
+        normalized_route = route.strip()
+        if not normalized_route:
+            raise ValueError("Route cannot be empty")
+        return normalized_route
 
 
 class FlightInfo(BaseModel):
