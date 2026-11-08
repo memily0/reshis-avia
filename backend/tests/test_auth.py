@@ -28,6 +28,7 @@ def test_registration_creates_session_and_hashes_password(
     assert "reshis_session=" in response.headers["set-cookie"]
     assert "HttpOnly" in response.headers["set-cookie"]
     assert "SameSite=lax" in response.headers["set-cookie"]
+    assert response.headers["cache-control"] == "no-store"
 
     current_user = auth_client.get("/api/auth/me")
     assert current_user.status_code == 200
@@ -73,6 +74,11 @@ def test_login_logout_and_current_user(auth_client: TestClient) -> None:
     assert auth_client.post("/api/auth/logout").status_code == 204
     assert auth_client.get("/api/auth/me").status_code == 401
 
+    anonymous_session = auth_client.get("/api/auth/session")
+    assert anonymous_session.status_code == 200
+    assert anonymous_session.json() is None
+    assert anonymous_session.headers["cache-control"] == "no-store"
+
     wrong_password = auth_client.post(
         "/api/auth/login",
         json={"email": credentials["email"], "password": "Wrong2026"},
@@ -84,11 +90,40 @@ def test_login_logout_and_current_user(auth_client: TestClient) -> None:
     assert login.status_code == 200
     assert login.json()["email"] == credentials["email"]
     assert auth_client.get("/api/auth/me").status_code == 200
+    assert auth_client.get("/api/auth/session").json()["email"] == credentials["email"]
 
     logout = auth_client.post("/api/auth/logout")
     assert logout.status_code == 204
     assert "reshis_session" not in auth_client.cookies
     assert auth_client.get("/api/auth/me").status_code == 401
+
+
+def test_secure_cookie_and_csrf_origin_check(
+    auth_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RESHIS_AVIA_COOKIE_SECURE", "true")
+    blocked = auth_client.post(
+        "/api/auth/register",
+        headers={"Origin": "https://malicious.example"},
+        json={"email": "blocked@example.com", "password": "Secure123"},
+    )
+    assert blocked.status_code == 403
+
+    allowed = auth_client.post(
+        "/api/auth/register",
+        headers={"Origin": "http://testserver"},
+        json={"email": "allowed@example.com", "password": "Secure123"},
+    )
+    assert allowed.status_code == 201
+    assert "Secure" in allowed.headers["set-cookie"]
+    assert "max-age=31536000" in allowed.headers["strict-transport-security"]
+
+    blocked_logout = auth_client.post(
+        "/api/auth/logout",
+        headers={"Origin": "https://malicious.example"},
+    )
+    assert blocked_logout.status_code == 403
 
 
 def test_forecast_remains_public(auth_client: TestClient) -> None:

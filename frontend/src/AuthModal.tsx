@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { ApiError, loginUser, registerUser } from "./api";
 import type { AuthMode, User } from "./types";
@@ -34,11 +34,41 @@ export function AuthModal({
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const dialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const backgroundElements = document.querySelectorAll<HTMLElement>(".app-header, .page");
+    backgroundElements.forEach((element) => {
+      element.inert = true;
+      element.setAttribute("aria-hidden", "true");
+    });
+
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
+        ),
+      );
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements.at(-1);
+      if (!firstElement || !lastElement) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
       }
     }
     document.body.classList.add("modal-open");
@@ -46,6 +76,11 @@ export function AuthModal({
     return () => {
       document.body.classList.remove("modal-open");
       window.removeEventListener("keydown", handleKeyDown);
+      backgroundElements.forEach((element) => {
+        element.inert = false;
+        element.removeAttribute("aria-hidden");
+      });
+      previouslyFocused?.focus();
     };
   }, [onClose]);
 
@@ -106,7 +141,13 @@ export function AuthModal({
         }
       }}
     >
-      <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+      <section
+        ref={dialogRef}
+        className="auth-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-title"
+      >
         <button className="auth-close" type="button" onClick={onClose} aria-label="Закрыть">
           ×
         </button>
@@ -120,9 +161,11 @@ export function AuthModal({
         </div>
 
         <div className="auth-form-panel">
-          <div className="auth-tabs" aria-label="Выбор действия">
+          <div className="auth-tabs" role="tablist" aria-label="Выбор действия">
             <button
               type="button"
+              role="tab"
+              aria-selected={!isRegistration}
               className={!isRegistration ? "active" : ""}
               onClick={() => changeMode("login")}
             >
@@ -130,6 +173,8 @@ export function AuthModal({
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={isRegistration}
               className={isRegistration ? "active" : ""}
               onClick={() => changeMode("register")}
             >

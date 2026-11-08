@@ -58,11 +58,8 @@ export async function getForecast(
 
 
 export async function getCurrentUser(): Promise<User | null> {
-  const response = await fetch("/api/auth/me", { credentials: "include" });
-  if (response.status === 401) {
-    return null;
-  }
-  return readJson<User>(response);
+  const response = await fetch("/api/auth/session", { credentials: "include" });
+  return readJson<User | null>(response);
 }
 
 

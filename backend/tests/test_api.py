@@ -10,6 +10,8 @@ def test_health() -> None:
     response = client.get("/api/health")
 
     assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
     assert response.json() == {
         "status": "ok",
         "routes_loaded": 5,
@@ -66,6 +68,8 @@ def test_invalid_requests_return_422() -> None:
     invalid_requests = [
         {"route": "MOW-AER", "date": "not-a-date", "price": 9000},
         {"route": "MOW-AER", "date": "2026-06-01", "price": -1},
+        {"route": "   ", "date": "2026-06-01", "price": 9000},
+        {"route": "X" * 33, "date": "2026-06-01", "price": 9000},
         {"route": "MOW-AER", "date": "2026-06-01"},
     ]
 
