@@ -76,3 +76,16 @@ def test_invalid_requests_return_422() -> None:
     for request_data in invalid_requests:
         response = client.post("/api/forecast", json=request_data)
         assert response.status_code == 422
+
+
+def test_fractional_price_and_negative_model_demand_are_preserved() -> None:
+    for price in [9000.5, 20000]:
+        response = client.post(
+            "/api/forecast", json={"route": "MOW-AER", "date": "2026-06-01", "price": price}
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["price"] == price
+        if price == 20000:
+            assert result["demand"] < 0
+            assert result["sales"] == 0

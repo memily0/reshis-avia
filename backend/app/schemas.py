@@ -68,7 +68,7 @@ class HealthResponse(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8, max_length=128, repr=False)
 
     @field_validator("password")
     @classmethod
@@ -82,7 +82,7 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=128, repr=False)
 
 
 class UserResponse(BaseModel):

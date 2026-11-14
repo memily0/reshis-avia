@@ -5,12 +5,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
+from backend.app.auth import connect
 
 
 @pytest.fixture
 def auth_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("RESHIS_AVIA_DB", str(tmp_path / "users.db"))
     with TestClient(app) as client:
+        assert (tmp_path / "users.db").exists()
         yield client
 
 
@@ -135,3 +137,65 @@ def test_forecast_remains_public(auth_client: TestClient) -> None:
     )
     assert response.status_code == 200
     assert len(response.json()["quantiles"]) == 9
+
+
+@pytest.mark.parametrize("password", ["short1", "onlyletters", "12345678", "Secret1" * 20])
+def test_invalid_password_is_not_in_response_or_logs(auth_client, caplog, password):
+    response = auth_client.post(
+        "/api/auth/register", json={"email": "pilot@example.com", "password": password}
+    )
+    assert response.status_code == 422
+    assert password not in response.text
+    assert password not in caplog.text
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("endpoint", ["register", "login"])
+def test_other_validation_errors_do_not_echo_password(auth_client, caplog, endpoint):
+    password = "PrivateFlight2026"
+    response = auth_client.post(
+        f"/api/auth/{endpoint}", json={"email": "invalid", "password": password}
+    )
+    assert response.status_code == 422
+    assert password not in response.text
+    malformed = auth_client.post(
+        f"/api/auth/{endpoint}",
+        content='{"password":"' + password + '",',
+        headers={"Content-Type": "application/json"},
+    )
+    assert malformed.status_code == 422
+    assert password not in malformed.text
+    assert password not in caplog.text
+
+
+def test_dev_origin_and_production_origin_policy(auth_client, monkeypatch):
+    monkeypatch.delenv("RESHIS_AVIA_ALLOWED_ORIGINS", raising=False)
+    credentials = {"email": "origin@example.com", "password": "Flight2026"}
+    headers = {"Host": "127.0.0.1:5173", "Origin": "http://127.0.0.1:5173"}
+    assert auth_client.post("/api/auth/register", json=credentials, headers=headers).status_code == 201
+
+    monkeypatch.setenv("RESHIS_AVIA_ALLOWED_ORIGINS", "https://avia.example.com")
+    for origin in ["http://127.0.0.1:5173", "https://malicious.example"]:
+        assert auth_client.post(
+            "/api/auth/login", json=credentials, headers={"Origin": origin}
+        ).status_code == 403
+    assert auth_client.post(
+        "/api/auth/login", json=credentials, headers={"Origin": "https://avia.example.com"}
+    ).status_code == 200
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_database_connection_closes_and_transaction_finishes(auth_client, fail):
+    with connect() as connection:
+        connection.execute("CREATE TABLE connection_test (value INTEGER)")
+    try:
+        with connect() as connection:
+            connection.execute("INSERT INTO connection_test VALUES (1)")
+            if fail:
+                raise ValueError("rollback")
+    except ValueError:
+        pass
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("SELECT 1")
+    with connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM connection_test").fetchone()[0] == (0 if fail else 1)

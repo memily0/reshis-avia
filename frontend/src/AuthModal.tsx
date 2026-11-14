@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent, RefObject } from "react";
 
 import { ApiError, loginUser, registerUser } from "./api";
 import type { AuthMode, User } from "./types";
@@ -6,25 +7,16 @@ import type { AuthMode, User } from "./types";
 
 type AuthModalProps = {
   mode: AuthMode;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
   onModeChange: (mode: AuthMode) => void;
   onClose: () => void;
   onAuthenticated: (user: User, created: boolean) => void;
 };
 
 
-function PlaneBadge() {
-  return (
-    <span className="auth-cloud" aria-hidden="true">
-      <svg viewBox="0 0 24 24">
-        <path d="M21.5 16.2 13.7 12V5.1c0-1-.7-3.1-1.7-3.1s-1.7 2.1-1.7 3.1V12l-7.8 4.2v2l7.8-2.4v4.3l-2 1.4V23l3.7-.8 3.7.8v-1.5l-2-1.4v-4.3l7.8 2.4v-2Z" />
-      </svg>
-    </span>
-  );
-}
-
-
 export function AuthModal({
   mode,
+  returnFocusRef,
   onModeChange,
   onClose,
   onAuthenticated,
@@ -35,9 +27,9 @@ export function AuthModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
+  const isRegistration = mode === "register";
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
     const backgroundElements = document.querySelectorAll<HTMLElement>(".app-header, .page");
     backgroundElements.forEach((element) => {
       element.inert = true;
@@ -53,13 +45,11 @@ export function AuthModal({
         return;
       }
 
-      const focusableElements = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(
-          "button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
-        ),
+      const focusableElements = dialogRef.current.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled])",
       );
       const firstElement = focusableElements[0];
-      const lastElement = focusableElements.at(-1);
+      const lastElement = focusableElements[focusableElements.length - 1];
       if (!firstElement || !lastElement) {
         return;
       }
@@ -73,6 +63,7 @@ export function AuthModal({
     }
     document.body.classList.add("modal-open");
     window.addEventListener("keydown", handleKeyDown);
+    dialogRef.current?.querySelector<HTMLInputElement>("#auth-email")?.focus();
     return () => {
       document.body.classList.remove("modal-open");
       window.removeEventListener("keydown", handleKeyDown);
@@ -80,9 +71,9 @@ export function AuthModal({
         element.inert = false;
         element.removeAttribute("aria-hidden");
       });
-      previouslyFocused?.focus();
+      returnFocusRef.current?.focus();
     };
-  }, [onClose]);
+  }, [onClose, returnFocusRef]);
 
   function changeMode(nextMode: AuthMode) {
     setError("");
@@ -95,29 +86,27 @@ export function AuthModal({
     event.preventDefault();
     setError("");
 
-    if (mode === "register" && password !== passwordConfirmation) {
-      setError("Пароли не совпадают");
-      return;
-    }
-    if (mode === "register" && password.length < 8) {
-      setError("Пароль должен содержать не менее 8 символов");
-      return;
-    }
-    if (mode === "register" && !/\p{L}/u.test(password)) {
-      setError("Добавьте в пароль хотя бы одну букву");
-      return;
-    }
-    if (mode === "register" && !/\d/.test(password)) {
-      setError("Добавьте в пароль хотя бы одну цифру");
-      return;
+    if (isRegistration) {
+      if (password !== passwordConfirmation) {
+        setError("Пароли не совпадают");
+        return;
+      }
+      if (!/\p{L}/u.test(password)) {
+        setError("Добавьте в пароль хотя бы одну букву");
+        return;
+      }
+      if (!/\d/.test(password)) {
+        setError("Добавьте в пароль хотя бы одну цифру");
+        return;
+      }
     }
 
     setSubmitting(true);
     try {
-      const user = mode === "register"
+      const user = isRegistration
         ? await registerUser(email, password)
         : await loginUser(email, password);
-      onAuthenticated(user, mode === "register");
+      onAuthenticated(user, isRegistration);
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -128,8 +117,6 @@ export function AuthModal({
       setSubmitting(false);
     }
   }
-
-  const isRegistration = mode === "register";
 
   return (
     <div
@@ -151,14 +138,6 @@ export function AuthModal({
         <button className="auth-close" type="button" onClick={onClose} aria-label="Закрыть">
           ×
         </button>
-
-        <div className="auth-intro">
-          <PlaneBadge />
-          <div>
-            <h2>Решись Авиа</h2>
-            <p>Сервис прогнозирования спроса на авиабилеты</p>
-          </div>
-        </div>
 
         <div className="auth-form-panel">
           <div className="auth-tabs" role="tablist" aria-label="Выбор действия">
@@ -183,7 +162,6 @@ export function AuthModal({
           </div>
 
           <div className="auth-title-row">
-            <span>{isRegistration ? "Новый аккаунт" : "С возвращением"}</span>
             <h2 id="auth-title">{isRegistration ? "Создайте аккаунт" : "Войдите в аккаунт"}</h2>
             <p>
               {isRegistration
@@ -203,7 +181,6 @@ export function AuthModal({
                 placeholder="name@example.com"
                 autoComplete="email"
                 required
-                autoFocus
               />
             </label>
 

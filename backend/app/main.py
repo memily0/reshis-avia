@@ -1,7 +1,11 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.auth import (
@@ -13,6 +17,7 @@ from backend.app.auth import (
     create_user,
     delete_session,
     get_user_by_session,
+    initialize_database,
 )
 from backend.app.forecast import (
     FORECASTS,
@@ -35,13 +40,32 @@ from backend.app.schemas import (
 )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_database()
+    yield
+
+
 app = FastAPI(
     title="Решись Авиа API",
     description="API для оценки спроса и продаж авиабилетов",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, error: RequestValidationError):
+    if request.url.path in {"/api/auth/register", "/api/auth/login"}:
+        # Ошибки Pydantic содержат исходный input, в том числе пароль.
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Проверьте email и пароль."},
+            headers={"Cache-Control": "no-store"},
+        )
+    return await request_validation_exception_handler(request, error)
 
 
 @app.middleware("http")
@@ -60,10 +84,6 @@ async def add_security_headers(request: Request, call_next):
             "max-age=31536000; includeSubDomains",
         )
     return response
-
-
-def prevent_sensitive_caching(response: Response) -> None:
-    response.headers["Cache-Control"] = "no-store"
 
 
 def validate_auth_origin(request: Request) -> None:
@@ -137,7 +157,7 @@ def register(request: RegisterRequest, response: Response, http_request: Request
     if user is None:
         raise HTTPException(status_code=409, detail="Аккаунт с таким email уже существует")
     set_session_cookie(response, create_session(user["id"]))
-    prevent_sensitive_caching(response)
+    response.headers["Cache-Control"] = "no-store"
     return user
 
 
@@ -148,7 +168,7 @@ def login(request: LoginRequest, response: Response, http_request: Request) -> d
     if user is None:
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
     set_session_cookie(response, create_session(user["id"]))
-    prevent_sensitive_caching(response)
+    response.headers["Cache-Control"] = "no-store"
     return user
 
 
@@ -157,7 +177,7 @@ def current_user(response: Response, reshis_session: str | None = Cookie(default
     user = get_user_by_session(reshis_session)
     if user is None:
         raise HTTPException(status_code=401, detail="Требуется вход в аккаунт")
-    prevent_sensitive_caching(response)
+    response.headers["Cache-Control"] = "no-store"
     return user
 
 
@@ -166,7 +186,7 @@ def current_session(
     response: Response,
     reshis_session: str | None = Cookie(default=None),
 ) -> dict | None:
-    prevent_sensitive_caching(response)
+    response.headers["Cache-Control"] = "no-store"
     return get_user_by_session(reshis_session)
 
 
@@ -185,7 +205,7 @@ def logout(
         secure=cookie_is_secure(),
         samesite="lax",
     )
-    prevent_sensitive_caching(response)
+    response.headers["Cache-Control"] = "no-store"
 
 
 if FRONTEND_DIST.is_dir():
