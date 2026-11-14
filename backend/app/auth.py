@@ -3,6 +3,8 @@ import hmac
 import os
 import secrets
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -21,14 +23,18 @@ def database_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "users.db"
 
 
-def connect() -> sqlite3.Connection:
+@contextmanager
+def connect() -> Iterator[sqlite3.Connection]:
     path = database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=10)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA busy_timeout = 10000")
-    return connection
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def initialize_database() -> None:
@@ -89,7 +95,6 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 def create_user(email: str, password: str) -> dict | None:
-    initialize_database()
     normalized_email = normalize_email(email)
     created_at = datetime.now(UTC).isoformat()
     try:
@@ -105,7 +110,6 @@ def create_user(email: str, password: str) -> dict | None:
 
 
 def authenticate_user(email: str, password: str) -> dict | None:
-    initialize_database()
     with connect() as connection:
         row = connection.execute(
             "SELECT id, email, password_hash, created_at FROM users WHERE email = ?",
@@ -125,7 +129,6 @@ def token_digest(token: str) -> str:
 
 
 def create_session(user_id: int) -> str:
-    initialize_database()
     token = secrets.token_urlsafe(32)
     now = datetime.now(UTC)
     expires_at = int((now + SESSION_LIFETIME).timestamp())
@@ -141,7 +144,6 @@ def create_session(user_id: int) -> str:
 def get_user_by_session(token: str | None) -> dict | None:
     if not token:
         return None
-    initialize_database()
     now = int(datetime.now(UTC).timestamp())
     digest = token_digest(token)
     with connect() as connection:
@@ -166,7 +168,6 @@ def get_user_by_session(token: str | None) -> dict | None:
 def delete_session(token: str | None) -> None:
     if not token:
         return
-    initialize_database()
     with connect() as connection:
         connection.execute("DELETE FROM sessions WHERE token_hash = ?", (token_digest(token),))
 
