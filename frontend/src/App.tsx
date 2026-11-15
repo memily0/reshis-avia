@@ -179,7 +179,6 @@ function App() {
             <span className="brand-mark"><CloudIcon /></span>
             <span className="brand-copy">
               <strong>Решись Авиа</strong>
-              <small>Revenue intelligence</small>
             </span>
           </a>
 
